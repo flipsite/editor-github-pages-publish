@@ -1,0 +1,75 @@
+name: Flipsite Publish
+
+# Triggered by external app calling the repository_dispatch API
+on:
+  repository_dispatch:
+    types: [flipsite_publish]
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+# Use proper permissions for GITHUB_TOKEN
+permissions:
+  contents: write    # push commits
+  pages: write       # deploy GitHub Pages
+  id-token: write    # OIDC for deploy-pages
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout main branch
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # 2️⃣ Delete old files (except .git)
+      - name: Delete old files
+        run: find . -mindepth 1 -not -path "./.git*" -exec rm -rf {} +
+
+      # 3️⃣ Extract ZIP URL from the payload
+      - name: Extract ZIP URL
+        id: extract
+        run: echo "ZIP_URL=${{ github.event.client_payload.download.url }}" >> $GITHUB_ENV
+
+      # 4️⃣ Download the ZIP
+      - name: Download ZIP
+        run: curl -L -o download.zip "${{ env.ZIP_URL }}"
+
+      # 5️⃣ Unzip into the repo
+      - name: Unzip ZIP
+        run: unzip -o download.zip -d .
+
+      # 6️⃣ Remove the ZIP file
+      - name: Remove ZIP
+        run: rm download.zip
+
+      # 7️⃣ Commit and push changes
+      - name: Commit and push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add .
+          git commit -m "Replace main with new version from Flipsite Editor" || echo "No changes to commit"
+          git push origin main --force
+
+      # 8️⃣ Setup GitHub Pages
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      # 9️⃣ Upload artifact (entire repo)
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '.'
+
+      # 🔟 Deploy Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
